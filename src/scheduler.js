@@ -55,7 +55,8 @@ export async function runCheck({ onProgress = () => {}, source = 'manual' } = {}
   // One-time v1->v2 migration, then prune stale/out-of-window records.
   // (On Vercel there is no server startup, so this runs here instead.)
   await ensureNotifiedBackfill();
-  await migrateAndClean(config);
+  const cleanInfo = await migrateAndClean(config);
+  const purged = cleanInfo.removed || 0;
 
   onProgress(`Checking ${sourceCount()} official pages`);
 
@@ -151,6 +152,7 @@ export async function runCheck({ onProgress = () => {}, source = 'manual' } = {}
     newReleases: newReleases.map((r) => ({ show_name: r.show_name, platform: r.platform })),
     releasedCount: filtered.released.length,
     upcomingCount: filtered.upcoming.length,
+    purged,
     failed: failed.map((f) => ({ platform: f.platform, reason: shortReason(f.error) })),
     allFailed,
     telegram: { sent: telegram.sent || 0, ok: telegram.ok, skipped: telegram.skipped || '', error: telegram.error || '' },

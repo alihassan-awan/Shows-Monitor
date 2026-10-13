@@ -83,9 +83,12 @@ export function isSameShow(a, b) {
   const sb = b.season ?? null;
   if (sa != null && sb != null && sa !== sb) return false; // different seasons stay separate
 
-  const la = (a.language || '').toLowerCase();
-  const lb = (b.language || '').toLowerCase();
-  if (la && lb && la !== lb) return false; // different-language versions stay separate
+  // NOTE: no language veto here on purpose. In this pipeline the language
+  // label comes from the SOURCE page (e.g. a Hindi show listed on the
+  // Zee Bangla page), not from the show itself — so the same title can
+  // legitimately carry different language labels across runs/sources.
+  // Vetoing on it caused the same title to be re-detected as "new" (and
+  // re-alerted on Telegram) every run. Title + platform + season is identity.
 
   const ca = canonicalTitle(a.show_name);
   const cb = canonicalTitle(b.show_name);

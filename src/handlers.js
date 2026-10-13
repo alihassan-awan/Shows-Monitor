@@ -5,6 +5,7 @@
 // (setHeader / statusCode / end) — no Express-only res.status().json().
 
 import { hasTavilyKey } from './extract.js';
+import { APP_VERSION } from './version.js';
 import { getShows, getMeta } from './db.js';
 import { runCheck, configSummary, researchProviderInfo } from './scheduler.js';
 import { platformNames, channelNames, languageNames } from './platforms.js';
@@ -25,6 +26,7 @@ function sendJson(res, status, obj) {
 export async function handleMeta(_req, res) {
   const meta = await getMeta();
   sendJson(res, 200, {
+    version: APP_VERSION,
     platforms: platformNames(),
     channels: channelNames(),
     languages: languageNames(),
@@ -77,8 +79,11 @@ export async function handleCheck(_req, res) {
     }
     if (result.allFailed) {
       send('notice', {
-        message: 'All platforms failed — check the LLM_API_KEY / TAVILY_API_KEY and the server console for details.'
+        message: 'All platforms failed — check the TAVILY_API_KEY and the server console for details.'
       });
+    }
+    if (result.purged > 0) {
+      send('notice', { message: `Cleaned up ${result.purged} invalid/junk record${result.purged > 1 ? 's' : ''} from the database.` });
     }
     if (result.telegram.sent > 0) {
       send('notice', { message: `Telegram notification sent (${result.telegram.sent} chat${result.telegram.sent > 1 ? 's' : ''}).` });

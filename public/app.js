@@ -11,7 +11,7 @@ async function loadMeta() {
   fill($('fLanguage'), meta.languages);
   renderStatus();
   $('footInfo').textContent =
-    `Research: ${meta.research.sources || ''} official pages • Tavily Extract • ` +
+    `v${meta.version || '?'} • Research: ${meta.research.sources || ''} official pages • Tavily Extract • ` +
     `Storage: ${meta.storage === 'kv' ? 'Vercel KV' : 'local file'} • ` +
     `Auto-check: ${meta.autoCheck.cronTimePKT}`;
 }
