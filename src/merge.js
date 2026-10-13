@@ -161,6 +161,7 @@ function sanitize(c) {
     confidence,
     date_confidence,
     official_url: /^https?:\/\//i.test(c.official_url || '') ? c.official_url.trim() : '',
+    source_name: String(c.source_name || '').trim().slice(0, 80),
     source_urls: cleanSources(c.source_urls),
     evidence: cleanEvidence(c.evidence),
     season,
@@ -244,6 +245,7 @@ export function combineRecords(a, b) {
 
   out.channel = a.channel || b.channel || '';
   out.language = a.language || b.language || '';
+  out.source_name = a.source_name || b.source_name || '';
   out.content_type = a.content_type || b.content_type || 'TV Show';
   out.official_url = a.official_url || b.official_url || '';
   out.summary = (b.summary || '').length > (a.summary || '').length ? b.summary : a.summary || b.summary || '';
@@ -312,4 +314,33 @@ export function mergeCandidates(candidates, config) {
     else out.push(rec);
   }
   return out;
+}
+
+// ---- JSON extraction ---------------------------------------------------
+// Robustly pull a JSON array out of a model response that may be raw JSON,
+// wrapped in ```json fences, or accompanied by a little surrounding text.
+export function extractJsonArray(text) {
+  if (!text) return [];
+
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = fenced ? fenced[1] : text;
+
+  const direct = tryParseJson(candidate);
+  if (Array.isArray(direct)) return direct;
+
+  const start = candidate.indexOf('[');
+  const end = candidate.lastIndexOf(']');
+  if (start !== -1 && end > start) {
+    const arr = tryParseJson(candidate.slice(start, end + 1));
+    if (Array.isArray(arr)) return arr;
+  }
+  return [];
+}
+
+function tryParseJson(str) {
+  try {
+    return JSON.parse(str.trim());
+  } catch {
+    return null;
+  }
 }

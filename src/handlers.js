@@ -4,9 +4,7 @@
 // FRAMEWORK-AGNOSTIC: only standard http.ServerResponse methods are used
 // (setHeader / statusCode / end) — no Express-only res.status().json().
 
-import { hasApiKey } from './gemini.js';
-import { hasLlmKey } from './llm.js';
-import { RESEARCH_PROVIDER } from './research.js';
+import { hasTavilyKey } from './extract.js';
 import { getShows, getMeta } from './db.js';
 import { runCheck, configSummary, researchProviderInfo } from './scheduler.js';
 import { platformNames, channelNames, languageNames } from './platforms.js';
@@ -30,8 +28,7 @@ export async function handleMeta(_req, res) {
     platforms: platformNames(),
     channels: channelNames(),
     languages: languageNames(),
-    provider: RESEARCH_PROVIDER,
-    hasApiKey: RESEARCH_PROVIDER === 'tavily' ? hasLlmKey() : hasApiKey(),
+    hasApiKey: hasTavilyKey(),
     research: researchProviderInfo(),
     storage: backend(),
     telegram: telegramStatus(),
@@ -80,7 +77,7 @@ export async function handleCheck(_req, res) {
     }
     if (result.allFailed) {
       send('notice', {
-        message: 'All platforms failed — check the GEMINI_API_KEY and the server console for details.'
+        message: 'All platforms failed — check the LLM_API_KEY / TAVILY_API_KEY and the server console for details.'
       });
     }
     if (result.telegram.sent > 0) {

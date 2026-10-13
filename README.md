@@ -1,20 +1,37 @@
 # Indian TV Release Monitor — v2
 
 One button. Two lists: **Newly Released** and **Upcoming** TV shows & web series across
-JioHotstar, ZEE5, SonyLIV and Sun NXT. Powered by the **official Google Gemini API**
-(with live web grounding), with a **daily auto-check** and **Telegram alerts** when a
-new show releases. Deployable to **Vercel** in minutes.
+JioHotstar, ZEE5, SonyLIV and Sun NXT — read **directly from the platforms'
+official pages** (no Google, no news sites, no LLM). **Tavily Extract** renders
+the official category/channel pages daily; anything appearing for the first
+time counts as newly released. With a **daily auto-check** and **Telegram
+alerts** (with official show links) when a new show appears. Deployable to
+**Vercel** in minutes.
 
-## What's new in v2
+## How it works
 
-- **Two research providers** — `RESEARCH_PROVIDER=gemini` (default): official
-  Google Gemini API with `google_search` grounding. `RESEARCH_PROVIDER=tavily`
-  ("groq" bhi chalega): **Tavily** web search + **any OpenAI-compatible LLM**
-  (Groq, OpenRouter, …) for extraction — just set `LLM_BASE_URL`/`LLM_API_KEY`/
-  `LLM_MODEL`. Free tiers checked Oct 2026: Tavily 1,000 searches/month (~8 per
-  daily check); Groq 30 req/min & 1,000 req/day; OpenRouter `:free` models
-  20 req/min & 50 req/day. (NVIDIA NIM has 40 RPM but is **not offered in
-  Pakistan**, so it's not recommended here.)
+```
+Every day (09:00 PKT cron, or the Check Updates button):
+
+  23 official pages (src/sources.js: StarPlus, Colors, Star Vijay,
+  ZEE5 languages, Sony SAB, Sun Bangla, …)
+        │  Tavily Extract (renders JS, returns markdown + links)
+        ▼
+  parse show titles + official page links   ← no LLM, zero token usage
+        │  compare with yesterday's snapshot (Vercel KV / local file)
+        ▼
+  first-time titles → "Newly Released" + Telegram alert with official link
+```
+
+- **Single source of truth:** only the platforms' own pages. A title the page
+  lists is confirmed by definition — no guessing premiere dates from news.
+- **"Newly Released"** = first seen on an official page within the last
+  `RELEASE_LOOKBACK_DAYS` (default **15** — daily checks make longer windows
+  unnecessary).
+- **Free tier math:** ~23 pages/day at advanced extract depth ≈ 300
+  Tavily credits/month (limit: 1,000). No other API costs at all.
+- **First run is a silent baseline:** the whole catalogue is recorded without
+  Telegram spam; from the second run on, only genuinely new titles alert.
 - **Daily auto-check** — Vercel Cron runs the full check every 24 hours
   (09:00 PKT). Locally, `AUTO_CHECK=true` does the same via an in-process timer.
 - **Telegram notifications** — when the check finds newly released shows, you get
@@ -32,59 +49,25 @@ new show releases. Deployable to **Vercel** in minutes.
 ```bash
 npm install
 cp .env.example .env
-# edit .env: at minimum set GEMINI_API_KEY
+# edit .env: at minimum set TAVILY_API_KEY
 npm start
 # open http://localhost:3000
 ```
 
-Test the Gemini connection separately:
+Test the research keys separately:
 
 ```bash
 npm run diagnose
 ```
 
-## 1) Research provider keys
+## 1) Tavily key (the only research key needed)
 
-**Option A — Tavily + free LLM (recommended, generous free limits):**
+1. Go to **https://tavily.com** → sign up → dashboard **API Keys** → copy
+   (starts with `tvly-`). Free: 1,000 credits/month, no card.
+2. Set `TAVILY_API_KEY=<tvly-...>` in `.env` (local) or Vercel env vars.
+3. Test one source page: `npm run diagnose` (tests all: `node diagnose.mjs --all`).
 
-Web search **Tavily**, extraction **koi bhi OpenAI-compatible LLM**:
-
-1. **Tavily:** go to **https://tavily.com** → sign up → dashboard **API Keys** →
-   copy (starts with `tvly-`). Free: 1,000 searches/month, no card. (~8 used
-   per daily check.)
-2. **LLM key** — pick one (all free, no card):
-   - **Groq** (easiest): **https://console.groq.com** → sign up → **API Keys** →
-     Create → copy (starts with `gsk_`). Free: 30 req/min, 1,000 req/day.
-     Prompts are *not* used for training.
-   - **OpenRouter**: **https://openrouter.ai** → sign up → **Keys** → copy.
-     Use a `:free` model (e.g. `nvidia/nemotron-3-super-120b-a12b:free`).
-     Free: 20 req/min, 50 req/day.
-   - ~~NVIDIA NIM~~ — 40 RPM sounds great, but it is **not offered in Pakistan**
-     (phone verification in a supported country required). Skip it.
-3. Set:
-   ```
-   RESEARCH_PROVIDER=tavily
-   TAVILY_API_KEY=<tvly-...>
-   LLM_BASE_URL=https://api.groq.com/openai/v1   # or OpenRouter's URL
-   LLM_API_KEY=<key>
-   LLM_MODEL=openai/gpt-oss-120b                # or a :free model id
-   ```
-   `npm run diagnose` lists the models your key can use.
-
-**Option B — Google Gemini:**
-
-1. Go to **https://aistudio.google.com/apikey** (sign in with Google).
-2. Click **Create API key** → copy it.
-3. Set:
-   ```
-   RESEARCH_PROVIDER=gemini   # (this is the default)
-   GEMINI_API_KEY=<key>
-   ```
-   (`GEMINI_MODEL` defaults to `gemini-3.5-flash-lite`; the old
-   `gemini-2.5-flash` was retired for new keys in Oct 2026.)
-
-Locally: paste into `.env`. On Vercel: add as environment variables (see
-deploy steps below). Test with `npm run diagnose`.
+## 2) Telegram (recommended)
 
 ## 2) Telegram alerts (recommended, ~2 minutes)
 
@@ -118,7 +101,7 @@ git remote add origin <your-repo-url> && git push -u origin main
 1. Go to **vercel.com → Add New → Project → Import** your repo.
 2. Framework preset: **Other**. No build command needed.
 3. **Environment variables** — add at least:
-   - `GEMINI_API_KEY` — your Google AI Studio key
+   - `TAVILY_API_KEY` — your Tavily key (free at tavily.com)
    - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` — for alerts
    - `CRON_SECRET` — any long random string (protects the cron endpoint)
 4. **Storage (for persistence!):** the app needs a Redis database.
@@ -156,17 +139,18 @@ Browser → Vercel (static UI + /api/* functions)
             ├─ /api/meta         → config + status
             └─ /api/telegram/test → setup verification
                     │
-        ┌───────────┴───────────┐
-        ▼                       ▼
-  RESEARCH_PROVIDER=gemini  RESEARCH_PROVIDER=tavily
-  Google Gemini API          Tavily web search
-  (gemini-3.5-flash-lite    + any OpenAI-compatible LLM
-   + google_search           (Groq / OpenRouter / …)
-   grounding) searches       extraction
-   recent news + official
-   pages per platform
-        │                       │
-        └───────────┬───────────┘
+        ┌──────────────────────────────────┐
+        ▼                                  ▼
+  For each platform (in parallel):   Tavily Extract renders
+  its official source pages          the JS-heavy pages,
+  (src/sources.js)                   returns markdown + links
+        │                                  │
+        └───────────┬──────────────────────┘
+                    ▼
+        parse titles + official links (no LLM)
+                    │
+                    ▼
+        diff vs yesterday's snapshot → new titles alert
                     ▼
         merge/clean/de-dupe → Vercel KV (or data/shows.json locally)
                     │
@@ -178,14 +162,9 @@ Browser → Vercel (static UI + /api/* functions)
 
 | Variable | Required | Default | Purpose |
 |---|---|---|---|
-| `RESEARCH_PROVIDER` | no | `gemini` | `gemini`, or `tavily` (`groq` = alias) |
-| `TAVILY_API_KEY` | for tavily | — | Free key at tavily.com (1,000 searches/mo) |
-| `LLM_BASE_URL` | no | Groq URL | Any OpenAI-compatible endpoint |
-| `LLM_API_KEY` | for tavily | — | Key for the LLM endpoint |
-| `LLM_MODEL` | no | `openai/gpt-oss-120b` | Model id for the LLM endpoint |
-| `GEMINI_API_KEY` | for gemini | — | Google AI Studio key |
-| `GEMINI_MODEL` | no | `gemini-3.5-flash-lite` | Must support `google_search` grounding (`gemini-2.5-flash` was retired for new keys) |
-| `GEMINI_BASE_URL` | no | — | OpenAI-compatible proxy URL (legacy v1 mode) |
+| `TAVILY_API_KEY` | yes | — | Free key at tavily.com (1,000 credits/mo) |
+| `TAVILY_EXTRACT_DEPTH` | no | `advanced` | `advanced` (JS-heavy pages) or `basic` (half credits) |
+| `RELEASE_LOOKBACK_DAYS` | no | `15` | "Newly Released" = first seen within this many days |
 | `TELEGRAM_BOT_TOKEN` | for alerts | — | BotFather token |
 | `TELEGRAM_CHAT_ID` | for alerts | — | Your numeric chat id (comma-separated ok) |
 | `TELEGRAM_NOTIFY_UPCOMING` | no | `false` | Also alert on new upcoming shows |
@@ -200,10 +179,9 @@ Browser → Vercel (static UI + /api/* functions)
 ```
 server.js            Local dev server (Express)
 api/                 Vercel serverless functions (meta, shows, check, cron/check, telegram/test)
-src/gemini.js        Gemini client: official API + proxy fallback
-src/research.js      Per-platform research (parallel) + provider branch
-src/llm.js           Generic OpenAI-compatible LLM client (Groq/OpenRouter/…)
-src/tavily.js        Tavily web-search client (free tier)
+src/research.js      Per-platform research: official pages via Tavily Extract (parallel)
+src/extract.js       Tavily Extract client + show-title/link parser (no LLM)
+src/sources.js       The 23 official platform pages (the single source of truth)
 src/merge.js         Normalize, de-duplicate, validate, classify
 src/store.js         Storage backend: Vercel KV <-> local JSON files
 src/db.js            Record store (async) + run metadata

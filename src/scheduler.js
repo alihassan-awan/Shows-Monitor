@@ -8,25 +8,25 @@
 // Flow: health -> parallel research -> merge/clean -> upsert -> detect new
 // releases -> notify on Telegram -> record run metadata.
 
-import { checkHealth as checkGeminiHealth, providerInfo as geminiProviderInfo } from './gemini.js';
-import { checkLlmHealth, providerInfo as llmProviderInfo } from './llm.js';
-import { hasTavilyKey } from './tavily.js';
-import { RESEARCH_PROVIDER, researchAll } from './research.js';
-import { mergeCandidates } from './merge.js';
+import { hasTavilyKey } from './extract.js';
+import { researchAll } from './research.js';
+import { makeKey, isSameShow } from './merge.js';
 import {
   upsertShows,
+  loadShows,
   getShows,
   markNotified,
+  getMeta,
   setMeta,
   migrateAndClean,
-  ensureNotifiedBackfill,
-  pendingReleaseNotifications
+  ensureNotifiedBackfill
 } from './db.js';
 import { platformNames } from './platforms.js';
+import { sourceCount } from './sources.js';
 import { notifyNewReleases, isTelegramConfigured } from './telegram.js';
 
 const PLATFORMS_COUNT = platformNames().length;
-const LOOKBACK_DAYS = Number(process.env.RELEASE_LOOKBACK_DAYS) || 30;
+const LOOKBACK_DAYS = Number(process.env.RELEASE_LOOKBACK_DAYS) || 15;
 const HORIZON_DAYS = Number(process.env.UPCOMING_HORIZON_DAYS) || 180;
 
 export function buildConfig() {
@@ -57,28 +57,79 @@ export async function runCheck({ onProgress = () => {}, source = 'manual' } = {}
   await ensureNotifiedBackfill();
   await migrateAndClean(config);
 
-  onProgress('Checking official sources');
+  onProgress(`Checking ${sourceCount()} official pages`);
 
-  const { candidates, failed } = await researchAll(config, (message) => onProgress(message));
+  const { results, failed } = await researchAll({
+    onProgress: (name, r) => onProgress(`${r.ok ? 'Done' : 'Failed'}: ${name} (${r.candidates.length} titles)`)
+  });
 
-  onProgress('Cleaning results');
-  const cleaned = mergeCandidates(candidates, config);
-  await upsertShows(cleaned);
+  // Flatten per-platform candidates, de-dupe by platform+title.
+  const seen = new Set();
+  const candidates = [];
+  for (const r of results) {
+    for (const c of r.candidates || []) {
+      const k = `${c.platform}||${c.show_name.toLowerCase().trim()}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      candidates.push(c);
+    }
+  }
 
-  // New releases discovered in THIS run = released + never notified.
-  // (migrateAndClean backfills notified_at for pre-existing rows, so the
-  // first Telegram-enabled run doesn't spam old shows.)
-  const newReleases = await pendingReleaseNotifications();
-  const newUpcoming = []; // reserved: upcoming alerts are opt-in via TELEGRAM_NOTIFY_UPCOMING
+  onProgress('Comparing with previous check');
+  const existing = await loadShows();
+  const todayISO = new Date().toISOString().slice(0, 10);
+
+  // Build store records. release_date = first-seen date: combineRecords keeps
+  // the earliest date on re-sightings, so a re-seen title never looks "new".
+  const records = candidates.map((c) => {
+    const rec = {
+      show_name: c.show_name,
+      platform: c.platform,
+      language: c.language || '',
+      channel: c.channel || '',
+      content_type: 'TV Show',
+      section: 'released',
+      status: 'Released',
+      release_date: todayISO,
+      confidence: 'Confirmed',
+      date_confidence: 'Confirmed',
+      official_url: c.official_url || '',
+      source_urls: c.source_url ? [c.source_url] : [],
+      source_name: c.source_name || '',
+      summary: ''
+    };
+    rec.key = makeKey(rec);
+    return rec;
+  });
+
+  // New = no matching record already stored (fuzzy title match included).
+  const newRecords = records.filter((rec) => !existing.some((e) => isSameShow(e, rec)));
+
+  onProgress('Saving results');
+  await upsertShows(records);
+
+  // First official-sources run establishes the baseline silently — otherwise
+  // the whole catalogue would fire one Telegram alert per title.
+  const meta = await getMeta();
+  const isBaseline = !meta.officialBaselineAt;
 
   let telegram = { ok: true, sent: 0, skipped: 'no new releases' };
-  if (newReleases.length && isTelegramConfigured()) {
-    // Mark first so a retry/crash can't double-notify for the same shows.
-    await markNotified(newReleases.map((r) => r.key));
-    onProgress('Sending Telegram notification');
-    telegram = await notifyNewReleases(newReleases, newUpcoming);
-    if (!telegram.ok && !telegram.skipped) {
-      console.error('[check] telegram notify failed:', telegram.error);
+  let newReleases = [];
+  if (isBaseline) {
+    await markNotified(newRecords.map((r) => r.key));
+    await setMeta({ officialBaselineAt: new Date().toISOString() });
+    telegram.skipped = `baseline established (${records.length} titles tracked)`;
+    console.log(`[check] baseline run: tracking ${records.length} titles, no alerts sent`);
+  } else {
+    newReleases = newRecords;
+    if (newReleases.length && isTelegramConfigured()) {
+      // Mark first so a retry/crash can't double-notify for the same shows.
+      await markNotified(newReleases.map((r) => r.key));
+      onProgress('Sending Telegram notification');
+      telegram = await notifyNewReleases(newReleases, []);
+      if (!telegram.ok && !telegram.skipped) {
+        console.error('[check] telegram notify failed:', telegram.error);
+      }
     }
   }
 
@@ -87,7 +138,7 @@ export async function runCheck({ onProgress = () => {}, source = 'manual' } = {}
 
   const summary = {
     source,
-    found: cleaned.length,
+    found: records.length,
     newReleases: newReleases.map((r) => ({ show_name: r.show_name, platform: r.platform })),
     releasedCount: filtered.released.length,
     upcomingCount: filtered.upcoming.length,
@@ -122,19 +173,15 @@ export function startLocalAutoCheck({ intervalHours = 24 } = {}) {
   return () => clearInterval(timer);
 }
 
-// Provider-aware health check + info for the UI.
+// Research info for the UI.
 export function researchProviderInfo() {
-  return RESEARCH_PROVIDER === 'tavily' ? llmProviderInfo() : geminiProviderInfo();
+  return { provider: 'tavily-extract', detail: 'official platform pages only', sources: sourceCount() };
 }
 
+// Health check: only the Tavily key is needed (no LLM, no Google).
 async function checkResearchHealth() {
-  if (RESEARCH_PROVIDER === 'tavily') {
-    const llm = await checkLlmHealth();
-    if (!llm.ok) return llm;
-    if (!hasTavilyKey()) {
-      return { ok: false, error: 'TAVILY_API_KEY is missing or invalid. Get a free key at https://tavily.com' };
-    }
-    return { ok: true };
+  if (!hasTavilyKey()) {
+    return { ok: false, error: 'TAVILY_API_KEY is missing or invalid. Get a free key at https://tavily.com' };
   }
-  return checkGeminiHealth();
+  return { ok: true };
 }

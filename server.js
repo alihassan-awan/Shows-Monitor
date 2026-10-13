@@ -31,7 +31,7 @@ app.listen(PORT, async () => {
   const g = researchProviderInfo();
   const c = configSummary();
   console.log(`Indian TV Release Monitor v2 running at http://localhost:${PORT}`);
-  console.log(`Research provider: ${g.provider}${g.model ? ` (model: ${g.model})` : ''}${g.llm ? ` (llm: ${g.llm})` : ''}`);
+  console.log(`Research: Tavily Extract over ${g.sources} official platform pages`);
   console.log(`Recency window: released ≤ ${c.lookbackDays}d ago, upcoming ≤ ${c.horizonDays}d ahead`);
   try {
     await ensureNotifiedBackfill();

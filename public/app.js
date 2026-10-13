@@ -10,11 +10,8 @@ async function loadMeta() {
   fill($('fChannel'), meta.channels);
   fill($('fLanguage'), meta.languages);
   renderStatus();
-  const researchLabel = meta.provider === 'tavily'
-    ? `Tavily search + ${meta.research.llmEndpoint} (${meta.research.llm})`
-    : `${meta.research.provider} (${meta.research.model})`;
   $('footInfo').textContent =
-    `Research: ${researchLabel} • ` +
+    `Research: ${meta.research.sources || ''} official pages • Tavily Extract • ` +
     `Storage: ${meta.storage === 'kv' ? 'Vercel KV' : 'local file'} • ` +
     `Auto-check: ${meta.autoCheck.cronTimePKT}`;
 }
@@ -33,8 +30,7 @@ function renderStatus() {
   const parts = [];
 
   if (!meta.hasApiKey) {
-    const keyName = meta.provider === 'tavily' ? 'LLM_API_KEY / TAVILY_API_KEY' : 'GEMINI_API_KEY';
-    parts.push(`<span class="bad">⚠ ${keyName} missing — add keys to enable checks.</span>`);
+    parts.push('<span class="bad">⚠ TAVILY_API_KEY missing — add it to enable checks.</span>');
   }
   if (!meta.telegram.configured) {
     parts.push('<span class="warn">✈ Telegram not configured — no alerts will be sent.</span>');
@@ -75,10 +71,10 @@ function render() {
   renderSection('released', state.released);
   renderSection('upcoming', state.upcoming);
   $('releasedSubtitle').textContent = state.released.length
-    ? `Released within the last ${meta.lookbackDays || 30} days`
+    ? `First seen on official pages in the last ${meta.lookbackDays || 15} days`
     : '';
   $('upcomingSubtitle').textContent = state.upcoming.length
-    ? `Confirmed & announced titles up to ${meta.horizonDays || 180} days ahead`
+    ? 'Earlier announcements (official pages only track released shows now)'
     : '';
 }
 
@@ -108,7 +104,7 @@ function fmtDate(iso) {
 function dateLine(row, kind) {
   if (kind === 'released') {
     const d = fmtDate(row.release_date);
-    return d ? 'Released ' + d : 'Released';
+    return d ? 'First seen ' + d : 'First seen recently';
   }
   const d = fmtDate(row.expected_release_date);
   return d ? 'Expected ' + d : 'Date not confirmed';
@@ -133,17 +129,29 @@ function card(row, kind) {
   if (row.content_type === 'Original') badges.appendChild(el('span', 'badge original', 'Original'));
   if (badges.childElementCount) c.appendChild(badges);
 
+  // Where it was spotted (official source page).
+  if (row.source_name) {
+    c.appendChild(el('div', 'src-line', 'via ' + row.source_name));
+  }
+
   const actions = el('div', 'card-actions');
   if (row.official_url) {
-    const a = el('a', 'btn-sm', 'Official');
+    const a = el('a', 'btn-sm primary', 'Official page ↗');
     a.href = row.official_url;
     a.target = '_blank';
     a.rel = 'noopener';
     actions.appendChild(a);
   }
-  const n = (row.source_urls || []).length;
-  if (n > 0) {
-    const b = el('button', 'btn-sm', `Sources (${n})`);
+  const srcUrls = (row.source_urls || []).map((s) => (typeof s === 'string' ? s : s.url)).filter(Boolean);
+  if (srcUrls.length === 1) {
+    // Single official source page — link directly, no modal needed.
+    const a = el('a', 'btn-sm', 'Source page ↗');
+    a.href = srcUrls[0];
+    a.target = '_blank';
+    a.rel = 'noopener';
+    actions.appendChild(a);
+  } else if (srcUrls.length > 1) {
+    const b = el('button', 'btn-sm', `Sources (${srcUrls.length})`);
     b.onclick = () => openSources(row);
     actions.appendChild(b);
   }
@@ -153,17 +161,17 @@ function card(row, kind) {
 
 // ---- Sources modal -----------------------------------------------------
 function openSources(row) {
-  $('modalTitle').textContent = 'Sources — ' + row.show_name;
+  $('modalTitle').textContent = 'Source page — ' + row.show_name;
   const list = $('modalList');
   list.innerHTML = '';
   for (const s of row.source_urls || []) {
+    const url = typeof s === 'string' ? s : s.url;
     const li = el('li');
-    const a = el('a', null, s.name || s.url);
-    a.href = s.url;
+    const a = el('a', null, url);
+    a.href = url;
     a.target = '_blank';
     a.rel = 'noopener';
     li.appendChild(a);
-    if (s.date) li.appendChild(el('div', 'src-meta', s.date));
     list.appendChild(li);
   }
   $('modal').hidden = false;
