@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Indian TV Release Monitor</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h1>Indian TV Release Monitor</h1>
+      <p class="tagline">Newly released &amp; upcoming shows across JioHotstar, ZEE5, SonyLIV &amp; Sun NXT</p>
+    </div>
+    <button id="checkBtn" class="check-btn">Check Updates</button>
+  </header>
+
+  <div id="statusbar" class="statusbar" hidden></div>
+  <div id="progress" class="progress" hidden></div>
+  <div id="notices" class="notices"></div>
+
+  <section class="filters">
+    <select id="fPlatform"><option value="">All Platforms</option></select>
+    <select id="fChannel"><option value="">All Channels</option></select>
+    <select id="fLanguage"><option value="">All Languages</option></select>
+    <input id="fSearch" type="search" placeholder="Search by show name…" />
+  </section>
+
+  <main>
+    <section class="results">
+      <div class="section-head">
+        <h2>Newly Released <span id="releasedCount" class="count">0</span></h2>
+        <p id="releasedSubtitle" class="subtitle"></p>
+      </div>
+      <div id="released" class="grid"></div>
+      <p id="releasedEmpty" class="empty" hidden>No newly released shows found.</p>
+    </section>
+
+    <section class="results">
+      <div class="section-head">
+        <h2>Upcoming <span id="upcomingCount" class="count">0</span></h2>
+        <p id="upcomingSubtitle" class="subtitle"></p>
+      </div>
+      <div id="upcoming" class="grid"></div>
+      <p id="upcomingEmpty" class="empty" hidden>No upcoming shows found.</p>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <p id="footInfo"></p>
+  </footer>
+
+  <!-- Sources modal -->
+  <div id="modal" class="modal" hidden>
+    <div class="modal-box">
+      <div class="modal-head">
+        <h3 id="modalTitle">Sources</h3>
+        <button id="modalClose" class="modal-close" aria-label="Close">&times;</button>
+      </div>
+      <ul id="modalList" class="source-list"></ul>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
