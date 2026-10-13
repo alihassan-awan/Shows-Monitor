@@ -8,6 +8,7 @@
 
 import { isSameShow, combineRecords, normalizeRecord, dedupeList, validate } from './merge.js';
 import { readJson, writeJson, writeBackup } from './store.js';
+import { isJunkCandidate } from './extract.js';
 
 const RECORDS_KEY = 'shows:records';
 const META_KEY = 'shows:meta';
@@ -99,7 +100,10 @@ export async function migrateAndClean(config) {
 
   const normalized = original.map(normalizeRecord).filter(Boolean);
   const validated = config ? normalized.filter((r) => validate(r, config)) : normalized;
-  const cleaned = dedupeList(validated);
+  // Drop junk records saved before the parser filters existed
+  // ("Blog", "France", "Hindi Webseries", movie pages, image alt-text, ...).
+  const dejunked = validated.filter((r) => !isJunkCandidate(r.show_name, r.official_url));
+  const cleaned = dedupeList(dejunked);
 
   const changed = JSON.stringify(cleaned) !== JSON.stringify(original);
   if (changed) {

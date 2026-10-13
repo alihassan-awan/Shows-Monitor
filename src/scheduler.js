@@ -63,6 +63,15 @@ export async function runCheck({ onProgress = () => {}, source = 'manual' } = {}
     onProgress: (name, r) => onProgress(`${r.ok ? 'Done' : 'Failed'}: ${name} (${r.candidates.length} titles)`)
   });
 
+  // A platform that "succeeds" but yields zero titles is suspicious —
+  // typically a geo-blocked or bot-walled page. Surface it like a failure
+  // so the user sees it instead of wondering where the shows went.
+  for (const r of results) {
+    if (r.ok && (r.candidates || []).length === 0) {
+      failed.push({ platform: r.platform, error: 'no titles extracted — the page may be geo-blocked or bot-walled' });
+    }
+  }
+
   // Flatten per-platform candidates, de-dupe by platform+title.
   const seen = new Set();
   const candidates = [];

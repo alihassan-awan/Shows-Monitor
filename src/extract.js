@@ -82,8 +82,52 @@ const NAV_WORDS = new Set([
   'language', 'languages', 'channels', 'shows', 'episodes', 'clips',
   'trailers', 'coming soon', 'trending', 'popular', 'new', 'a-z',
   'skip to content', 'back to top', 'close', 'menu', 'play', 'watch now',
-  'watch trailer', 'add to watchlist', 'share', 'next', 'previous'
+  'watch trailer', 'add to watchlist', 'share', 'next', 'previous',
+  // footer/nav junk observed in production extracts
+  'blog', 'stories', 'preferences', 'do not sell or share my personal information',
+  'fifa world cup schedule', 'popular live tv channels', 'popular web series',
+  'zee news', 'zee tv hd',
+  // country names (sports-schedule tiles, not shows)
+  'france', 'spain', 'argentina', 'england', 'brazil', 'portugal',
+  'germany', 'italy', 'netherlands', 'mexico',
+  // social/app-badge icon alts
+  'insta', 'instagram', 'twitter', 'facebook', 'google play', 'app store',
+  // css/alt fragments seen on Sun NXT pages
+  'logo', 'caret', 'search_hover', 'profile_hover', 'tvs',
+  // sonyliv rail headings
+  'shows on set', 'evergreen classics'
 ]);
+
+// Category/collection tiles, not actual shows: "Hindi Webseries",
+// "Deepika Padukone Movies", "Pakistani Serials", "Zee Bangla serials on ZEE5"
+const CATEGORY_TAIL = /(movies?|web\s?series|tv\s?shows?|tv\s?serials?|serials?|drama\s?series|drama|shows)(\s+on\s+[a-z0-9]+)?$/i;
+// Image alt-text leaking through as titles: "Image 2: Back", "Image 30: Google Play"
+const IMAGE_ALT = /^(image|img|photo|pic|thumbnail)\s*\d*\s*[:\-–—]/i;
+// Bare domains used as link text: "www.sonyliv.com"
+const DOMAIN_TITLE = /^(www\.|https?:\/\/)|[.](com|in|net|org|tv)$/i;
+// Movie detail pages — we only track TV shows / web series.
+const MOVIE_URL = /\/(movies?|films?)\//i;
+
+/**
+ * Shared junk predicate: used by the live parser AND by the DB purge that
+ * cleans records saved before these filters existed.
+ */
+export function isJunkCandidate(title, url) {
+  let t = cleanText(title);
+  if (!t || t.length < 2 || t.length > 120) return true;
+  if (t.startsWith('!')) t = cleanText(t.slice(1)); // image-link markdown remnant
+  t = cleanText(t.replace(/^[[#!]+\s*/, '')); // stray "[","#","!" prefixes
+  if (!t || t.length < 2) return true;
+  if (/^#+/.test(t)) return true;
+  if (IMAGE_ALT.test(t)) return true;
+  if (DOMAIN_TITLE.test(t)) return true;
+  if (/\blogo$/i.test(t)) return true; // "Sun NXT Logo"
+  if (/^[a-z]+(_[a-z0-9]+)+$/.test(t)) return true; // snake_case code fragments
+  if (NAV_WORDS.has(t.toLowerCase())) return true;
+  if (CATEGORY_TAIL.test(t)) return true;
+  if (url && MOVIE_URL.test(url)) return true;
+  return false;
+}
 
 const JUNK_URL_RE = /(login|signin|sign-in|signup|sign-up|register|subscribe|subscription|help|support|terms|privacy|about|contact|download|faq|cookie|feedback|sitemap)/i;
 
@@ -111,29 +155,42 @@ export function parseTitles(markdown, pageUrl) {
     pageHost = new URL(pageUrl).hostname.replace(/^www\./, '');
   } catch { /* ignore */ }
 
-  const re = /\[([^\]]{1,200})\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
-  let m;
-  while ((m = re.exec(markdown || '')) !== null) {
-    const title = cleanText(m[1]);
-    if (title.length < 2 || title.length > 120) continue;
-    if (/^[\d\s\-–—.,:;!?()'"“”‘’]+$/.test(title)) continue;
-    if (NAV_WORDS.has(title.toLowerCase())) continue;
-    // Skip image-only tiles and alt-text noise.
-    if (/^!/.test(m[0])) continue;
+  const md = markdown || '';
 
-    const url = resolveUrl(m[2], pageUrl);
-    if (!url) continue;
+  const push = (rawTitle, rawHref) => {
+    let title = cleanText(rawTitle);
+    if (title.startsWith('!')) title = cleanText(title.slice(1));
+    if (!title) return;
+    if (/^[\d\s\-–—.,:;!?()'"“”‘’]+$/.test(title)) return;
+    const url = resolveUrl(rawHref, pageUrl);
+    if (!url) return;
+    if (isJunkCandidate(title, url)) return;
     let host = '';
     try {
       host = new URL(url).hostname.replace(/^www\./, '');
-    } catch { continue; }
-    if (pageHost && host !== pageHost) continue; // ignore external/ads links
-    if (JUNK_URL_RE.test(url)) continue;
+    } catch { return; }
+    if (pageHost && host !== pageHost) return; // ignore external/ads links
+    if (JUNK_URL_RE.test(url)) return;
 
     const key = title.toLowerCase();
-    if (seen.has(key)) continue;
+    if (seen.has(key)) return;
     seen.add(key);
     out.push({ title, url });
+  };
+
+  // 1) Image-wrapped tiles: [![alt](img-url)](show-page-url) -> alt + show page.
+  //    Must run BEFORE the plain-link pass, which would otherwise match the
+  //    inner image link (and its alt text as the "title").
+  const imgRe = /\[!\[([^\]]{0,200})\]\([^)]*\)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
+  let m;
+  while ((m = imgRe.exec(md)) !== null) push(m[1], m[2]);
+
+  // 2) Plain links. Anything whose text starts with "!" is a bare image link
+  //    (no usable title) — skip it.
+  const re = /\[([^\]]{1,200})\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
+  while ((m = re.exec(md)) !== null) {
+    if (/^!/.test(m[1])) continue;
+    push(m[1], m[2]);
   }
   return out;
 }

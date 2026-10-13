@@ -47,10 +47,10 @@ export const SOURCES = {
     { name: 'SonyLIV Originals', url: 'https://www.sonyliv.com/listing/specials-1111_9012481', language: 'Hindi', channel: 'SonyLIV' }
   ],
   'Sun NXT': [
-    // Note: these are live-channel pages, not show catalogues — extraction
-    // returns whatever titles the page exposes (schedule, highlights).
-    { name: 'Sun Bangla', url: 'https://www.sunnxt.com/live/sun-bangla-bengali-live/194388/sun-bangla', language: 'Bengali', channel: 'Sun Bangla' },
-    { name: 'Sun Neo Hindi', url: 'https://www.sunnxt.com/live/sun-neo-hd-hindi-live/194389/sun-neo-hd', language: 'Hindi', channel: 'Sun Neo' }
+    // The /live/ channel pages from the original list don't expose extractable
+    // listings ("Error fetching content"), so we use the official TV-shows
+    // catalogue page instead.
+    { name: 'Sun NXT TV Shows', url: 'https://www.sunnxt.com/tv-shows', language: '', channel: 'Sun NXT' }
   ]
 };
 
