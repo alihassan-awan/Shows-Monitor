@@ -18,8 +18,16 @@ const DATA_DIR = path.join(__dirname, '..', 'data');
 const DB_FILE = path.join(DATA_DIR, 'shows.json');
 const BACKUP_FILE = path.join(DATA_DIR, 'shows.backup.json');
 
-const KV_URL = (process.env.KV_REST_API_URL || '').replace(/\/+$/, '');
-const KV_TOKEN = process.env.KV_REST_API_TOKEN || '';
+// Vercel KV injects KV_REST_API_URL / KV_REST_API_TOKEN automatically.
+// The Upstash Marketplace integration (or a manual upstash.com database)
+// uses UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN — same REST API,
+// so both namings are accepted.
+const KV_URL = (
+  process.env.KV_REST_API_URL ||
+  process.env.UPSTASH_REDIS_REST_URL ||
+  ''
+).replace(/\/+$/, '');
+const KV_TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || '';
 
 export function backend() {
   return KV_URL && KV_TOKEN ? 'kv' : 'file';

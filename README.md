@@ -83,9 +83,17 @@ git remote add origin <your-repo-url> && git push -u origin main
    - `GEMINI_API_KEY` — your Google AI Studio key
    - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` — for alerts
    - `CRON_SECRET` — any long random string (protects the cron endpoint)
-4. **Storage (for persistence!):** in the project dashboard go to the
-   **Storage** tab → **Create** → **KV (Redis)** → connect it.
-   Vercel injects `KV_REST_API_URL` / `KV_REST_API_TOKEN` automatically.
+4. **Storage (for persistence!):** the app needs a Redis database.
+   Vercel injects `KV_REST_API_URL` / `KV_REST_API_TOKEN` automatically when you
+   connect one; a manual Upstash database's `UPSTASH_REDIS_REST_URL` /
+   `UPSTASH_REDIS_REST_TOKEN` also work. Two ways:
+   - **In Vercel:** project dashboard → **Storage** tab → **Create Database** →
+     look for **Upstash Redis** (search "Upstash" if "Redis" finds nothing) →
+     create and connect it to the project.
+   - **Direct (if Vercel shows no Redis option):** sign up at **upstash.com** →
+     Create Database → Redis (free tier, pick the closest region) → copy the
+     **REST API** URL and token → add them in Vercel as environment variables
+     named `KV_REST_API_URL` and `KV_REST_API_TOKEN`.
    *Without this, show data resets on every cold start.*
 5. Deploy.
 
@@ -126,7 +134,7 @@ Browser → Vercel (static UI + /api/* functions)
 | Variable | Required | Default | Purpose |
 |---|---|---|---|
 | `GEMINI_API_KEY` | yes | — | Google AI Studio key |
-| `GEMINI_MODEL` | no | `gemini-2.5-flash` | Must support `google_search` grounding |
+| `GEMINI_MODEL` | no | `gemini-3.5-flash-lite` | Must support `google_search` grounding (`gemini-2.5-flash` was retired for new keys) |
 | `GEMINI_BASE_URL` | no | — | OpenAI-compatible proxy URL (legacy v1 mode) |
 | `TELEGRAM_BOT_TOKEN` | for alerts | — | BotFather token |
 | `TELEGRAM_CHAT_ID` | for alerts | — | Your numeric chat id (comma-separated ok) |

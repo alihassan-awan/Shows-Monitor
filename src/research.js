@@ -172,12 +172,17 @@ export async function researchPlatform(platform, config, timeoutMs = PLATFORM_TI
 
 // Research every platform IN PARALLEL. onProgress(msg) is called with
 // user-facing strings as each platform finishes.
+//
+// Starts are staggered ~3s apart so the burst doesn't trip the free tier's
+// per-minute rate limit; each call also retries on HTTP 429 (see gemini.js).
 export async function researchAll(config, onProgress = () => {}) {
-  const jobs = PLATFORMS.map((platform) =>
-    researchPlatform(platform, config).then((res) => {
-      onProgress(res.ok ? `Done: ${res.platform}` : `${res.platform} failed`);
-      return res;
-    })
+  const jobs = PLATFORMS.map((platform, i) =>
+    new Promise((r) => setTimeout(r, i * 3000))
+      .then(() => researchPlatform(platform, config))
+      .then((res) => {
+        onProgress(res.ok ? `Done: ${res.platform}` : `${res.platform} failed`);
+        return res;
+      })
   );
 
   const results = await Promise.all(jobs);

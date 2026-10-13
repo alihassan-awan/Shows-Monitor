@@ -9,7 +9,7 @@
 //   requests go to {GEMINI_BASE_URL}/chat/completions in OpenAI-compatible
 //   format, exactly like v1 did.
 
-const MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+const MODEL = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
 const API_KEY = (process.env.GEMINI_API_KEY || '').trim();
 const PROXY_BASE = (process.env.GEMINI_BASE_URL || '').replace(/\/+$/, '');
 
@@ -83,6 +83,26 @@ export async function checkHealth({ timeoutMs = 10000 } = {}) {
   }
 }
 
+// Retry helper for HTTP 429 (free-tier per-minute quota). Waits with growing
+// delays before retrying — a burst of parallel platform calls can trip the
+// RPM limit even when daily quota is fine.
+async function with429Retry(fn, { retries = 2, baseDelayMs = 12000 } = {}) {
+  let lastErr;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      const is429 = /HTTP 429/.test(String(err?.message || ''));
+      if (!is429 || attempt === retries) throw err;
+      const waitMs = baseDelayMs * (attempt + 1);
+      console.warn(`[gemini] 429 rate limit — retrying in ${Math.round(waitMs / 1000)}s (attempt ${attempt + 2}/${retries + 1})`);
+      await new Promise((r) => setTimeout(r, waitMs));
+    }
+  }
+  throw lastErr;
+}
+
 // Send one research prompt. Returns the assistant text. Throws descriptive
 // errors (never a blanket "API key not valid").
 export async function callGemini(prompt, { timeoutMs = 120000 } = {}) {
@@ -91,7 +111,8 @@ export async function callGemini(prompt, { timeoutMs = 120000 } = {}) {
       'GEMINI_API_KEY is missing or invalid. Get a free key at https://aistudio.google.com/apikey'
     );
   }
-  return useProxy ? callViaProxy(prompt, timeoutMs) : callViaGoogle(prompt, timeoutMs);
+  const fn = () => (useProxy ? callViaProxy(prompt, timeoutMs) : callViaGoogle(prompt, timeoutMs));
+  return with429Retry(fn);
 }
 
 async function callViaGoogle(prompt, timeoutMs) {
@@ -216,7 +237,12 @@ function describeNetworkError(err, who) {
 function mapGoogleHttpError(status, detail) {
   if (status === 400) return `Bad request (HTTP 400): ${detail}`;
   if (status === 403) return `API key or permission issue (HTTP 403): ${detail}`;
-  if (status === 404) return `Model "${MODEL}" not found (HTTP 404) — try GEMINI_MODEL=gemini-2.5-flash. ${detail}`;
+  if (status === 404) {
+    const retired = /no longer available/i.test(detail);
+    return retired
+      ? `Model "${MODEL}" is retired for new API keys (HTTP 404). Run "npm run diagnose" to list models your key can use, then set GEMINI_MODEL to one of them.`
+      : `Model "${MODEL}" not found (HTTP 404) — run "npm run diagnose" to list available models. ${detail}`;
+  }
   if (status === 429) return `Quota/rate limit hit (HTTP 429) — wait a bit and retry. ${detail}`;
   if (status >= 500) return `Google API error (HTTP ${status}) — retry shortly. ${detail}`;
   return `HTTP ${status}: ${detail}`;
