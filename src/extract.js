@@ -124,6 +124,10 @@ export function isJunkCandidate(title, url) {
   if (/\blogo$/i.test(t)) return true; // "Sun NXT Logo"
   if (/^[a-z]+(_[a-z0-9]+)+$/.test(t)) return true; // snake_case code fragments
   if (NAV_WORDS.has(t.toLowerCase())) return true;
+  // underscore/space variants: "search_hover" vs "search hover"
+  const low = t.toLowerCase();
+  if (NAV_WORDS.has(low.replace(/_/g, ' '))) return true;
+  if (NAV_WORDS.has(low.replace(/\s+/g, '_'))) return true;
   if (CATEGORY_TAIL.test(t)) return true;
   if (url && MOVIE_URL.test(url)) return true;
   return false;
