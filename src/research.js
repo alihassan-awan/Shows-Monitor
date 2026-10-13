@@ -7,6 +7,14 @@
 
 import { PLATFORMS } from './platforms.js';
 import { callGemini, extractJsonArray } from './gemini.js';
+import { callLlm } from './llm.js';
+import { tavilySearch, hasTavilyKey } from './tavily.js';
+
+// Research provider: "gemini" (model searches the live web itself) or
+// "tavily" (Tavily searches the web, any OpenAI-compatible LLM extracts the
+// structured records). "groq" is kept as an alias of "tavily".
+const _raw = (process.env.RESEARCH_PROVIDER || 'gemini').toLowerCase();
+export const RESEARCH_PROVIDER = _raw === 'tavily' || _raw === 'groq' ? 'tavily' : 'gemini';
 
 const PLATFORM_TIMEOUT_MS = Number(process.env.PLATFORM_TIMEOUT_MS) || 50000;
 
@@ -144,18 +152,90 @@ function timeoutError(platformName, ms) {
   return err;
 }
 
+// ---- Tavily + LLM path ------------------------------------------------
+// The LLM has no web access: Tavily does 2 targeted news searches per
+// platform, and the LLM extracts the structured records from those results.
+// The SAME JSON schema + mapCandidate() are reused, so downstream code is
+// provider-agnostic.
+
+const LLM_SYSTEM =
+  'You are a precise information-extraction assistant. You are given WEB SEARCH RESULTS ' +
+  'below. Extract ONLY shows that are explicitly supported by those results. ' +
+  'NEVER use your own training knowledge — if the results do not mention a show, it does not exist ' +
+  'for this task. Prefer official platform announcements and reputable entertainment-trade outlets. ' +
+  'Return output strictly in the JSON format requested, with no extra commentary.';
+
+function monthYear(d) {
+  return new Date(d).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+}
+
+function buildSearchContext(results) {
+  return results
+    .map((r, i) => {
+      const date = r.publishedDate ? ` (${r.publishedDate.slice(0, 10)})` : '';
+      return `[${i + 1}] ${r.title}${date}\n    ${r.url}\n    ${r.content}`;
+    })
+    .join('\n\n');
+}
+
+function buildLlmPrompt(platform, config, context) {
+  return (
+    `Use ONLY the web search results below as evidence. Do NOT use your training knowledge. ` +
+    `A show qualifies ONLY if at least one result below supports it.\n\n` +
+    `WEB SEARCH RESULTS:\n${context}\n\n` +
+    `---\n\n` +
+    buildPrompt(platform, config) +
+    `\n\nFor "sources", use the URLs of the results above that support each show.`
+  );
+}
+
+async function researchPlatformTavily(platform, config) {
+  if (!hasTavilyKey()) {
+    throw new Error('TAVILY_API_KEY is missing — set it to use the tavily provider (free key at https://tavily.com)');
+  }
+  const queries = [
+    `new TV shows web series released ${platform.name} ${monthYear(config.today)}`,
+    `upcoming TV shows web series announced ${platform.name} 2026`
+  ];
+  const all = [];
+  for (const q of queries) {
+    const hits = await tavilySearch(q, { maxResults: 8 });
+    all.push(...hits);
+  }
+  // De-dupe by URL, keep order.
+  const seen = new Set();
+  const results = all.filter((r) => (seen.has(r.url) ? false : (seen.add(r.url), true)));
+  if (!results.length) {
+    throw new Error('Tavily returned no results for this platform');
+  }
+  const text = await callLlm([
+    { role: 'system', content: LLM_SYSTEM },
+    { role: 'user', content: buildLlmPrompt(platform, config, buildSearchContext(results)) }
+  ]);
+  const rows = extractJsonArray(text);
+  if (rows.length === 0 && !/\[\s*\]/.test(text)) {
+    throw new Error(`JSON parsing failed — no JSON array in response: "${text.slice(0, 120)}"`);
+  }
+  return rows.map((r) => mapCandidate(r, platform.name)).filter(Boolean);
+}
+
 // Research a single platform with its own timeout. Never throws — returns
 // { platform, ok, error, candidates }.
 export async function researchPlatform(platform, config, timeoutMs = PLATFORM_TIMEOUT_MS) {
   const work = (async () => {
-    const text = await callGemini(buildPrompt(platform, config), { timeoutMs });
-    const rows = extractJsonArray(text);
-    // Distinguish "genuinely no shows" (model returned []) from a real parse
-    // failure (model returned prose / malformed output we could not parse).
-    if (rows.length === 0 && !/\[\s*\]/.test(text)) {
-      throw new Error(`JSON parsing failed — no JSON array in response: "${text.slice(0, 120)}"`);
-    }
-    const candidates = rows.map((r) => mapCandidate(r, platform.name)).filter(Boolean);
+    const candidates =
+      RESEARCH_PROVIDER === 'tavily'
+        ? await researchPlatformTavily(platform, config)
+        : await (async () => {
+            const text = await callGemini(buildPrompt(platform, config), { timeoutMs });
+            const rows = extractJsonArray(text);
+            // Distinguish "genuinely no shows" (model returned []) from a real parse
+            // failure (model returned prose / malformed output we could not parse).
+            if (rows.length === 0 && !/\[\s*\]/.test(text)) {
+              throw new Error(`JSON parsing failed — no JSON array in response: "${text.slice(0, 120)}"`);
+            }
+            return rows.map((r) => mapCandidate(r, platform.name)).filter(Boolean);
+          })();
     return { platform: platform.name, ok: true, candidates };
   })();
 

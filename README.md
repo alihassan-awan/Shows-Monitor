@@ -7,10 +7,14 @@ new show releases. Deployable to **Vercel** in minutes.
 
 ## What's new in v2
 
-- **Real Google Gemini integration** — official Generative Language API
-  (`generativelanguage.googleapis.com`) with the `google_search` grounding tool.
-  No more local proxy needed. (The old OpenAI-compatible proxy still works if you
-  set `GEMINI_BASE_URL`.)
+- **Two research providers** — `RESEARCH_PROVIDER=gemini` (default): official
+  Google Gemini API with `google_search` grounding. `RESEARCH_PROVIDER=tavily`
+  ("groq" bhi chalega): **Tavily** web search + **any OpenAI-compatible LLM**
+  (Groq, OpenRouter, …) for extraction — just set `LLM_BASE_URL`/`LLM_API_KEY`/
+  `LLM_MODEL`. Free tiers checked Oct 2026: Tavily 1,000 searches/month (~8 per
+  daily check); Groq 30 req/min & 1,000 req/day; OpenRouter `:free` models
+  20 req/min & 50 req/day. (NVIDIA NIM has 40 RPM but is **not offered in
+  Pakistan**, so it's not recommended here.)
 - **Daily auto-check** — Vercel Cron runs the full check every 24 hours
   (09:00 PKT). Locally, `AUTO_CHECK=true` does the same via an in-process timer.
 - **Telegram notifications** — when the check finds newly released shows, you get
@@ -39,14 +43,48 @@ Test the Gemini connection separately:
 npm run diagnose
 ```
 
-## 1) Google Gemini API key (required)
+## 1) Research provider keys
+
+**Option A — Tavily + free LLM (recommended, generous free limits):**
+
+Web search **Tavily**, extraction **koi bhi OpenAI-compatible LLM**:
+
+1. **Tavily:** go to **https://tavily.com** → sign up → dashboard **API Keys** →
+   copy (starts with `tvly-`). Free: 1,000 searches/month, no card. (~8 used
+   per daily check.)
+2. **LLM key** — pick one (all free, no card):
+   - **Groq** (easiest): **https://console.groq.com** → sign up → **API Keys** →
+     Create → copy (starts with `gsk_`). Free: 30 req/min, 1,000 req/day.
+     Prompts are *not* used for training.
+   - **OpenRouter**: **https://openrouter.ai** → sign up → **Keys** → copy.
+     Use a `:free` model (e.g. `nvidia/nemotron-3-super-120b-a12b:free`).
+     Free: 20 req/min, 50 req/day.
+   - ~~NVIDIA NIM~~ — 40 RPM sounds great, but it is **not offered in Pakistan**
+     (phone verification in a supported country required). Skip it.
+3. Set:
+   ```
+   RESEARCH_PROVIDER=tavily
+   TAVILY_API_KEY=<tvly-...>
+   LLM_BASE_URL=https://api.groq.com/openai/v1   # or OpenRouter's URL
+   LLM_API_KEY=<key>
+   LLM_MODEL=openai/gpt-oss-120b                # or a :free model id
+   ```
+   `npm run diagnose` lists the models your key can use.
+
+**Option B — Google Gemini:**
 
 1. Go to **https://aistudio.google.com/apikey** (sign in with Google).
 2. Click **Create API key** → copy it.
-3. Locally: paste it as `GEMINI_API_KEY=` in `.env`.
-   On Vercel: add it as an environment variable (see deploy steps below).
+3. Set:
+   ```
+   RESEARCH_PROVIDER=gemini   # (this is the default)
+   GEMINI_API_KEY=<key>
+   ```
+   (`GEMINI_MODEL` defaults to `gemini-3.5-flash-lite`; the old
+   `gemini-2.5-flash` was retired for new keys in Oct 2026.)
 
-The free tier is more than enough for one check per day (4 grounded searches).
+Locally: paste into `.env`. On Vercel: add as environment variables (see
+deploy steps below). Test with `npm run diagnose`.
 
 ## 2) Telegram alerts (recommended, ~2 minutes)
 
@@ -118,10 +156,17 @@ Browser → Vercel (static UI + /api/* functions)
             ├─ /api/meta         → config + status
             └─ /api/telegram/test → setup verification
                     │
-                    ▼
-        Google Gemini API (gemini-2.5-flash + google_search grounding)
-        searches recent news + official pages per platform
-                    │
+        ┌───────────┴───────────┐
+        ▼                       ▼
+  RESEARCH_PROVIDER=gemini  RESEARCH_PROVIDER=tavily
+  Google Gemini API          Tavily web search
+  (gemini-3.5-flash-lite    + any OpenAI-compatible LLM
+   + google_search           (Groq / OpenRouter / …)
+   grounding) searches       extraction
+   recent news + official
+   pages per platform
+        │                       │
+        └───────────┬───────────┘
                     ▼
         merge/clean/de-dupe → Vercel KV (or data/shows.json locally)
                     │
@@ -133,7 +178,12 @@ Browser → Vercel (static UI + /api/* functions)
 
 | Variable | Required | Default | Purpose |
 |---|---|---|---|
-| `GEMINI_API_KEY` | yes | — | Google AI Studio key |
+| `RESEARCH_PROVIDER` | no | `gemini` | `gemini`, or `tavily` (`groq` = alias) |
+| `TAVILY_API_KEY` | for tavily | — | Free key at tavily.com (1,000 searches/mo) |
+| `LLM_BASE_URL` | no | Groq URL | Any OpenAI-compatible endpoint |
+| `LLM_API_KEY` | for tavily | — | Key for the LLM endpoint |
+| `LLM_MODEL` | no | `openai/gpt-oss-120b` | Model id for the LLM endpoint |
+| `GEMINI_API_KEY` | for gemini | — | Google AI Studio key |
 | `GEMINI_MODEL` | no | `gemini-3.5-flash-lite` | Must support `google_search` grounding (`gemini-2.5-flash` was retired for new keys) |
 | `GEMINI_BASE_URL` | no | — | OpenAI-compatible proxy URL (legacy v1 mode) |
 | `TELEGRAM_BOT_TOKEN` | for alerts | — | BotFather token |
@@ -151,7 +201,9 @@ Browser → Vercel (static UI + /api/* functions)
 server.js            Local dev server (Express)
 api/                 Vercel serverless functions (meta, shows, check, cron/check, telegram/test)
 src/gemini.js        Gemini client: official API + proxy fallback
-src/research.js      Parallel per-platform research prompts
+src/research.js      Per-platform research (parallel) + provider branch
+src/llm.js           Generic OpenAI-compatible LLM client (Groq/OpenRouter/…)
+src/tavily.js        Tavily web-search client (free tier)
 src/merge.js         Normalize, de-duplicate, validate, classify
 src/store.js         Storage backend: Vercel KV <-> local JSON files
 src/db.js            Record store (async) + run metadata

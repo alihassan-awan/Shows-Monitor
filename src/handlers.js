@@ -4,9 +4,11 @@
 // FRAMEWORK-AGNOSTIC: only standard http.ServerResponse methods are used
 // (setHeader / statusCode / end) — no Express-only res.status().json().
 
-import { hasApiKey, providerInfo } from './gemini.js';
+import { hasApiKey } from './gemini.js';
+import { hasLlmKey } from './llm.js';
+import { RESEARCH_PROVIDER } from './research.js';
 import { getShows, getMeta } from './db.js';
-import { runCheck, configSummary } from './scheduler.js';
+import { runCheck, configSummary, researchProviderInfo } from './scheduler.js';
 import { platformNames, channelNames, languageNames } from './platforms.js';
 import { backend } from './store.js';
 import {
@@ -28,8 +30,9 @@ export async function handleMeta(_req, res) {
     platforms: platformNames(),
     channels: channelNames(),
     languages: languageNames(),
-    hasApiKey: hasApiKey(),
-    gemini: providerInfo(),
+    provider: RESEARCH_PROVIDER,
+    hasApiKey: RESEARCH_PROVIDER === 'tavily' ? hasLlmKey() : hasApiKey(),
+    research: researchProviderInfo(),
     storage: backend(),
     telegram: telegramStatus(),
     autoCheck: {

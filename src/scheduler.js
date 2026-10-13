@@ -8,8 +8,10 @@
 // Flow: health -> parallel research -> merge/clean -> upsert -> detect new
 // releases -> notify on Telegram -> record run metadata.
 
-import { checkHealth, providerInfo } from './gemini.js';
-import { researchAll } from './research.js';
+import { checkHealth as checkGeminiHealth, providerInfo as geminiProviderInfo } from './gemini.js';
+import { checkLlmHealth, providerInfo as llmProviderInfo } from './llm.js';
+import { hasTavilyKey } from './tavily.js';
+import { RESEARCH_PROVIDER, researchAll } from './research.js';
 import { mergeCandidates } from './merge.js';
 import {
   upsertShows,
@@ -43,7 +45,7 @@ function shortReason(err = '') {
 // Returns a result summary; never throws for platform-level failures, but
 // throws when the run cannot proceed at all (e.g. no API key).
 export async function runCheck({ onProgress = () => {}, source = 'manual' } = {}) {
-  const health = await checkHealth();
+  const health = await checkResearchHealth();
   if (!health.ok) {
     throw new Error(health.error);
   }
@@ -120,4 +122,19 @@ export function startLocalAutoCheck({ intervalHours = 24 } = {}) {
   return () => clearInterval(timer);
 }
 
-export { providerInfo };
+// Provider-aware health check + info for the UI.
+export function researchProviderInfo() {
+  return RESEARCH_PROVIDER === 'tavily' ? llmProviderInfo() : geminiProviderInfo();
+}
+
+async function checkResearchHealth() {
+  if (RESEARCH_PROVIDER === 'tavily') {
+    const llm = await checkLlmHealth();
+    if (!llm.ok) return llm;
+    if (!hasTavilyKey()) {
+      return { ok: false, error: 'TAVILY_API_KEY is missing or invalid. Get a free key at https://tavily.com' };
+    }
+    return { ok: true };
+  }
+  return checkGeminiHealth();
+}

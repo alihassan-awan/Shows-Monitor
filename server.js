@@ -5,8 +5,7 @@ import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { providerInfo } from './src/gemini.js';
-import { buildConfig, configSummary, startLocalAutoCheck } from './src/scheduler.js';
+import { buildConfig, configSummary, startLocalAutoCheck, researchProviderInfo } from './src/scheduler.js';
 import { migrateAndClean, ensureNotifiedBackfill } from './src/db.js';
 import {
   handleMeta,
@@ -29,10 +28,10 @@ app.get('/api/cron/check', (req, res) => handleCronCheck(req, res));
 app.get('/api/telegram/test', (req, res) => handleTelegramTest(req, res));
 
 app.listen(PORT, async () => {
-  const g = providerInfo();
+  const g = researchProviderInfo();
   const c = configSummary();
   console.log(`Indian TV Release Monitor v2 running at http://localhost:${PORT}`);
-  console.log(`Gemini: ${g.provider} (model: ${g.model})`);
+  console.log(`Research provider: ${g.provider}${g.model ? ` (model: ${g.model})` : ''}${g.llm ? ` (llm: ${g.llm})` : ''}`);
   console.log(`Recency window: released ≤ ${c.lookbackDays}d ago, upcoming ≤ ${c.horizonDays}d ahead`);
   try {
     await ensureNotifiedBackfill();

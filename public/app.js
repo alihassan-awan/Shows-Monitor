@@ -10,8 +10,11 @@ async function loadMeta() {
   fill($('fChannel'), meta.channels);
   fill($('fLanguage'), meta.languages);
   renderStatus();
+  const researchLabel = meta.provider === 'tavily'
+    ? `Tavily search + ${meta.research.llmEndpoint} (${meta.research.llm})`
+    : `${meta.research.provider} (${meta.research.model})`;
   $('footInfo').textContent =
-    `Gemini: ${meta.gemini.provider} (${meta.gemini.model}) • ` +
+    `Research: ${researchLabel} • ` +
     `Storage: ${meta.storage === 'kv' ? 'Vercel KV' : 'local file'} • ` +
     `Auto-check: ${meta.autoCheck.cronTimePKT}`;
 }
@@ -30,7 +33,8 @@ function renderStatus() {
   const parts = [];
 
   if (!meta.hasApiKey) {
-    parts.push('<span class="bad">⚠ GEMINI_API_KEY missing — add a Google AI Studio key to enable checks.</span>');
+    const keyName = meta.provider === 'tavily' ? 'LLM_API_KEY / TAVILY_API_KEY' : 'GEMINI_API_KEY';
+    parts.push(`<span class="bad">⚠ ${keyName} missing — add keys to enable checks.</span>`);
   }
   if (!meta.telegram.configured) {
     parts.push('<span class="warn">✈ Telegram not configured — no alerts will be sent.</span>');

@@ -1,7 +1,49 @@
-// Diagnostic for the Gemini connection (v2).
-// Tests the OFFICIAL Google Generative Language API, or the OpenAI-compatible
-// proxy when GEMINI_BASE_URL is set. Run: npm run diagnose
+// Diagnostic for the research provider (v2).
+// RESEARCH_PROVIDER=gemini: tests the official Google Generative Language API
+//   (or the OpenAI-compatible proxy when GEMINI_BASE_URL is set).
+// RESEARCH_PROVIDER=tavily (alias "groq"): tests the LLM + Tavily web search.
+// Run: npm run diagnose
 import 'dotenv/config';
+
+const _raw = (process.env.RESEARCH_PROVIDER || 'gemini').toLowerCase();
+const provider = _raw === 'tavily' || _raw === 'groq' ? 'tavily' : 'gemini';
+
+if (provider === 'tavily') {
+  const { checkLlmHealth, llmModel, llmEndpoint } = await import('./src/llm.js');
+  const { hasTavilyKey, tavilySearch } = await import('./src/tavily.js');
+
+  console.log('\n=== Indian TV Release Monitor v2 — Tavily+LLM diagnostics ===\n');
+  console.log(`• LLM      : ${llmModel()} @ ${llmEndpoint()}`);
+  console.log(`• Search   : Tavily (1 credit per test search)\n`);
+
+  console.log('1) LLM key check (GET /models)…');
+  const health = await checkLlmHealth();
+  if (!health.ok) {
+    console.log('   ❌', health.error);
+    process.exit(0);
+  }
+  console.log('   ✔ LLM key is valid.');
+  if (health.models?.length) {
+    console.log('   Models served (first 10):', health.models.slice(0, 10).join(', '));
+  }
+
+  console.log('\n2) Tavily key check…');
+  if (!hasTavilyKey()) {
+    console.log('   ❌ TAVILY_API_KEY is missing or invalid. Get a free key at https://tavily.com');
+    process.exit(0);
+  }
+  console.log('   ✔ Tavily key format looks good.');
+
+  console.log('\n3) Test Tavily search (costs 1 free credit)…');
+  try {
+    const hits = await tavilySearch('new web series released India', { maxResults: 3 });
+    console.log(`   ✔ Search works — got ${hits.length} results. First: ${hits[0]?.title?.slice(0, 60)}`);
+    console.log('\n✅ Tavily+LLM provider is ready. Start the app with: npm start\n');
+  } catch (e) {
+    console.log('   ❌ Search failed:', e.message, '\n');
+  }
+  process.exit(0);
+}
 
 const key = (process.env.GEMINI_API_KEY || '').trim();
 const proxyBase = (process.env.GEMINI_BASE_URL || '').replace(/\/+$/, '');
