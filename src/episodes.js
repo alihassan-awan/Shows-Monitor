@@ -1,3 +1,4 @@
+import { tavilyExtract } from './extract.js';
 import { readJson, writeJson, backend } from './store.js';
 import { sendTelegramMessage, isTelegramConfigured } from './telegram.js';
 
@@ -36,6 +37,65 @@ export function extractEpisodes(html) {
   return results;
 }
 
+
+function normalizeEpisode(title, href) {
+  const name = decode(String(title).replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim());
+  if (!/\b(?:episode|ep\.?\s*\d+)\b/i.test(name)) return null;
+  if (/\b(precap|promo|trailer|teaser)\b/i.test(name)) return null;
+  let url;
+  try { url = new URL(decode(href),SOURCE); } catch { return null; }
+  if (!['serialtvmaza.sbs','www.serialtvmaza.sbs'].includes(url.hostname)) return null;
+  url.hash=''; url.search='';
+  url.pathname=url.pathname.replace(/\/+$/,'')+'/';
+  return {title:name,url:url.href};
+}
+
+export function extractEpisodesMarkdown(markdown) {
+  // Tavily Extract returns markdown, not the HTML expected by extractEpisodes().
+  // Only the site's Recent Posts section represents the daily episode listing.
+  const sections=String(markdown).split(/^#{1,5}\s*Recent\s+Posts\s*$/im);
+  if (sections.length<2) throw new Error('Tavily page content does not contain Recent Posts');
+  const section=sections[1].split(/^#{1,3}\s*(?:Categories|Popular Posts|Recent Comments|Footer)\s*$/im)[0];
+  const results=[];const seen=new Set();
+  const links=/\[([^\]]{2,260})\]\((https?:\/\/[^)\s]+|\/[^)\s]+)\)/g;
+  let match;
+  while((match=links.exec(section))){
+    const item=normalizeEpisode(match[1],match[2]);
+    if (item&&!seen.has(item.url)){seen.add(item.url);results.push(item);}
+  }
+  if(!results.length)throw new Error('Tavily Recent Posts contained no episode links; baseline preserved');
+  return results.slice(0,100);
+}
+
+async function fetchEpisodePosts() {
+  let directError='';
+  try {
+    const response=await fetch(SOURCE,{
+      headers:{'User-Agent':'Mozilla/5.0 (compatible; ShowsMonitor/2.1; +https://showsmonitor.vercel.app/)'},
+      signal:AbortSignal.timeout(12000)
+    });
+    if(response.ok) return {items:extractEpisodes(await response.text()),method:'direct'};
+    directError='HTTP '+response.status;
+    // A 403/429 here is source-site access rejection, not a Telegram problem.
+    console.warn('[episodes] direct source fetch rejected:',directError);
+  }catch(error){
+    directError=String(error.message||error);
+    console.warn('[episodes] direct source fetch failed:',directError);
+  }
+  // Fallback: the app already uses Tavily Extract for the OTT sources.
+  // Never treat an extraction failure as an empty episode list.
+  const extracted=await tavilyExtract([SOURCE],{timeoutMs:30000});
+  const page=extracted.results.find(r=>r.url===SOURCE)||extracted.results[0];
+  if(!page?.raw_content){
+    const failure=extracted.failed.map(f=>f.error).join('; ')||'no content';
+    throw new Error('Direct source: '+directError+'; Tavily Extract failed: '+failure);
+  }
+  const data=page.raw_content;
+  const items=/^\s*<!doctype html|^\s*<html\b/i.test(data)
+    ? extractEpisodes(data) : extractEpisodesMarkdown(data);
+  return {items,method:'tavily-extract'};
+}
+
 export async function getEpisodeDashboard() {
   const latest = await readJson(LATEST_KEY, null);
   return latest || { source:SOURCE, lastCheckedAt:null, recent:[], scanned:0, newEpisodes:0, alertedEpisodes:0, error:null };
@@ -45,12 +105,7 @@ export async function checkEpisodes() {
   const start = new Date().toISOString();
   try {
     if (backend() !== 'kv' && process.env.VERCEL) throw new Error('Persistent Redis storage is required on Vercel');
-    const response = await fetch(SOURCE, {
-      headers:{ 'User-Agent':'Mozilla/5.0 (compatible; ShowsMonitor/2.1; +https://showsmonitor.vercel.app/)' },
-      signal:AbortSignal.timeout(20000)
-    });
-    if (!response.ok) throw new Error('SerialTvmaza returned HTTP '+response.status);
-    const items = extractEpisodes(await response.text());
+    const {items,method} = await fetchEpisodePosts();
     const old = await readJson(SEEN_KEY,null);
     if (old !== null && (!Array.isArray(old) || old.some((url) => typeof url !== 'string'))) {
       throw new Error('Saved episode baseline is invalid');
@@ -87,6 +142,7 @@ export async function checkEpisodes() {
 
     const result = {
       source:SOURCE,
+      method,
       lastCheckedAt:new Date().toISOString(),
       lastAttemptAt:start,
       initialized:old === null,
@@ -98,7 +154,7 @@ export async function checkEpisodes() {
       error:null
     };
     await writeJson(LATEST_KEY,result);
-    console.log('[episodes] scanned='+items.length+' new='+fresh.length+' notified='+alertedEpisodes+' messages='+messages);
+    console.log('[episodes] source='+method+' scanned='+items.length+' new='+fresh.length+' notified='+alertedEpisodes+' messages='+messages);
     return result;
   } catch (error) {
     console.error('[episodes] check failed:',error.message);
