@@ -202,3 +202,12 @@ diagnose.mjs         Connection diagnostic (npm run diagnose)
   beat 20 questionable ones. Rumours are dropped by `merge.js` validation.
 - Old records are backfilled as "already notified" on first run, so enabling
   Telegram later won't spam you with the existing catalogue.
+
+## SerialTvmaza episode alerts (v6 extension)
+
+- `/api/cron/episodes` checks the site's **Recent Posts** and sends one Telegram alert per newly detected episode post.
+- The first successful run seeds the episode URL baseline **without sending old alerts**.
+- Runs at **09:00 and 21:00 PKT** (04:00 and 16:00 UTC) when the Vercel plan supports twice-daily cron.
+- Requires existing `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `CRON_SECRET`, and persistent Upstash/Vercel KV environment variables.
+- **Important:** Vercel Hobby cron may be restricted to once per day. If deployment rejects the 12-hour schedule, remove the episodes entry from `vercel.json` and invoke the secured endpoint with an external scheduler twice daily, or upgrade to a plan that supports it. External scheduler must send `Authorization: Bearer <CRON_SECRET>`.
+- Notifications detect **new posts**, not verified playback availability. Only posts visible in the homepage Recent Posts are checked, so a busy source can cause misses between checks.

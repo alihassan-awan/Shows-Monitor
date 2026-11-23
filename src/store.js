@@ -74,7 +74,7 @@ export async function readJson(key, fallback) {
       fs.writeFileSync(DB_FILE, '[]', 'utf8');
       return fallback;
     }
-    const file = key === 'shows:meta' ? path.join(DATA_DIR, 'meta.json') : DB_FILE;
+    const file = key === 'shows:meta' ? path.join(DATA_DIR, 'meta.json') : key === 'episodes:seen:v1' ? path.join(DATA_DIR, 'episodes-seen.json') : DB_FILE;
     if (!fs.existsSync(file)) return fallback;
     const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
     return parsed ?? fallback;
@@ -90,7 +90,7 @@ export async function writeJson(key, value) {
     return;
   }
   ensureDir();
-  const file = key === 'shows:meta' ? path.join(DATA_DIR, 'meta.json') : DB_FILE;
+  const file = key === 'shows:meta' ? path.join(DATA_DIR, 'meta.json') : key === 'episodes:seen:v1' ? path.join(DATA_DIR, 'episodes-seen.json') : DB_FILE;
   fs.writeFileSync(file, JSON.stringify(value, null, 2), 'utf8');
 }
 
