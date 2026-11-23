@@ -64,6 +64,8 @@ export async function readJson(key, fallback) {
       const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
       return parsed ?? fallback;
     } catch (err) {
+      // Episode deduplication must NEVER treat a failed Redis read as an empty baseline.
+      if (key.startsWith('episodes:')) throw err;
       console.error(`[store] KV read "${key}" failed, using fallback:`, err.message);
       return fallback;
     }
@@ -74,7 +76,7 @@ export async function readJson(key, fallback) {
       fs.writeFileSync(DB_FILE, '[]', 'utf8');
       return fallback;
     }
-    const file = key === 'shows:meta' ? path.join(DATA_DIR, 'meta.json') : key === 'episodes:seen:v1' ? path.join(DATA_DIR, 'episodes-seen.json') : DB_FILE;
+    const file = key === 'shows:meta' ? path.join(DATA_DIR, 'meta.json') : key === 'episodes:seen:v1' ? path.join(DATA_DIR, 'episodes-seen.json') : key === 'episodes:latest:v1' ? path.join(DATA_DIR, 'episodes-latest.json') : DB_FILE;
     if (!fs.existsSync(file)) return fallback;
     const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
     return parsed ?? fallback;
@@ -90,7 +92,7 @@ export async function writeJson(key, value) {
     return;
   }
   ensureDir();
-  const file = key === 'shows:meta' ? path.join(DATA_DIR, 'meta.json') : key === 'episodes:seen:v1' ? path.join(DATA_DIR, 'episodes-seen.json') : DB_FILE;
+  const file = key === 'shows:meta' ? path.join(DATA_DIR, 'meta.json') : key === 'episodes:seen:v1' ? path.join(DATA_DIR, 'episodes-seen.json') : key === 'episodes:latest:v1' ? path.join(DATA_DIR, 'episodes-latest.json') : DB_FILE;
   fs.writeFileSync(file, JSON.stringify(value, null, 2), 'utf8');
 }
 

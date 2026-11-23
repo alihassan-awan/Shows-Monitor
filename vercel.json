@@ -4,10 +4,6 @@
     {
       "path": "/api/cron/check",
       "schedule": "0 4 * * *"
-    },
-    {
-      "path": "/api/cron/episodes",
-      "schedule": "0 4 * * *"
     }
   ],
   "functions": {

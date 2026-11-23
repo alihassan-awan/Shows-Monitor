@@ -10,9 +10,9 @@
   <header class="topbar">
     <div class="brand">
       <h1>Indian TV Release Monitor</h1>
-      <p class="tagline">Newly released &amp; upcoming shows across JioHotstar, ZEE5, SonyLIV &amp; Sun NXT</p>
+      <p class="tagline">OTT releases + new SerialTvmaza episode alerts • Daily at 9:00 AM PKT</p>
     </div>
-    <button id="checkBtn" class="check-btn">Check Updates</button>
+    <button id="checkBtn" class="check-btn">Check OTT + Episodes</button>
   </header>
 
   <div id="statusbar" class="statusbar" hidden></div>
@@ -43,6 +43,14 @@
       </div>
       <div id="upcoming" class="grid"></div>
       <p id="upcomingEmpty" class="empty" hidden>No upcoming shows found.</p>
+    </section>
+    <section class="results">
+      <div class="section-head">
+        <h2>SerialTvmaza — Recent Episodes <span id="episodeCount" class="count">0</span></h2>
+        <p id="episodeSubtitle" class="subtitle">Loading episode monitoring status…</p>
+      </div>
+      <div id="episodes" class="grid"></div>
+      <p id="episodeEmpty" class="empty" hidden>No episode scan yet. Press Check OTT + Episodes or wait for the daily cron.</p>
     </section>
   </main>
 

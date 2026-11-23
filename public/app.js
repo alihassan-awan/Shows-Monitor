@@ -54,6 +54,36 @@ function fmtDateTime(iso) {
   return d.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
+// ---- SerialTvmaza episode results (separate from official OTT shows) ----
+async function loadEpisodes() {
+  try {
+    const r = await fetch('/api/episodes',{cache:'no-store'});
+    if (!r.ok) throw new Error('HTTP '+r.status);
+    const data = await r.json();
+    const rows = Array.isArray(data.recent) ? data.recent : [];
+    $('episodeCount').textContent = rows.length;
+    $('episodeEmpty').hidden = rows.length > 0;
+    $('episodeSubtitle').textContent = data.error
+      ? 'Last attempt failed: '+data.error
+      : data.lastCheckedAt
+        ? 'Last scanned: '+fmtDateTime(data.lastCheckedAt)+' • '+(data.newEpisodes||0)+' new on last check • '+(data.alertedEpisodes||0)+' notified'
+        : 'Not checked yet — next daily check at 9:00 AM PKT (or press Check OTT + Episodes)';
+    const grid = $('episodes');
+    grid.replaceChildren();
+    for (const item of rows) {
+      const c = el('div','card');
+      c.appendChild(el('h3',null,item.title));
+      c.appendChild(el('div','meta-line','SerialTvmaza • Episode post'));
+      const actions = el('div','card-actions');
+      const a = el('a','btn-sm primary','View episode ↗');
+      a.href = item.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+      actions.appendChild(a); c.appendChild(actions); grid.appendChild(c);
+    }
+  } catch (err) {
+    $('episodeSubtitle').textContent = 'Could not load episode status: '+err.message;
+  }
+}
+
 // ---- Load stored shows (respecting filters) ----------------------------
 async function loadShows() {
   const params = new URLSearchParams();
@@ -204,7 +234,7 @@ function checkUpdates() {
     es.close(); // close synchronously so the native error is suppressed
     const data = JSON.parse(e.data);
     setProgress('Done');
-    await loadShows();
+    await Promise.all([loadShows(),loadEpisodes()]);
     await refreshMeta();
     if (data.newReleases && data.newReleases.length) {
       addNotice(`🎬 ${data.newReleases.length} new release(s): ` + data.newReleases.map((r) => r.show_name).join(', '), false);
@@ -244,4 +274,4 @@ $('modal').addEventListener('click', (e) => { if (e.target.id === 'modal') $('mo
 for (const id of ['fPlatform', 'fChannel', 'fLanguage']) $(id).addEventListener('change', loadShows);
 $('fSearch').addEventListener('input', () => { clearTimeout(window.__t); window.__t = setTimeout(loadShows, 250); });
 
-loadMeta().then(loadShows);
+loadMeta().then(() => Promise.all([loadShows(),loadEpisodes()]));

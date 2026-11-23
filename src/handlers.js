@@ -1,3 +1,4 @@
+import { checkEpisodes, getEpisodeDashboard } from './episodes.js';
 // HTTP handlers shared by the local Express server (server.js) and the
 // Vercel serverless functions (api/*).
 //
@@ -21,6 +22,11 @@ function sendJson(res, status, obj) {
   res.statusCode = status;
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.end(JSON.stringify(obj));
+}
+
+export async function handleEpisodes(_req, res) {
+  try { sendJson(res,200,await getEpisodeDashboard()); }
+  catch (err) { sendJson(res,503,{error:'Episode storage unavailable: '+err.message}); }
 }
 
 export async function handleMeta(_req, res) {
@@ -65,6 +71,7 @@ export async function handleCheck(_req, res) {
   };
 
   try {
+    const episodeTask = checkEpisodes().then((data) => ({ok:true,data})).catch((error) => ({ok:false,error:error.message}));
     const result = await runCheck({
       source: 'manual',
       onProgress: (message) => send('progress', { message })
@@ -93,6 +100,9 @@ export async function handleCheck(_req, res) {
       send('notice', { message: `New release(s) found but the Telegram alert failed: ${result.telegram.error || 'unknown error'}` });
     }
 
+    const episode = await episodeTask;
+    if (episode.ok) send('notice', { message: 'SerialTvmaza checked: '+episode.data.scanned+' posts, '+episode.data.newEpisodes+' new, '+episode.data.alertedEpisodes+' notified'+(episode.data.initialized?' (first-run baseline saved)':'')+'.' });
+    else send('notice', { message: 'SerialTvmaza check failed: '+episode.error });
     send('progress', { message: 'Done' });
     send('done', {
       released: result.released,
@@ -121,23 +131,28 @@ export async function handleCronCheck(req, res) {
     console.warn('[cron] CRON_SECRET is not set — endpoint is unprotected');
   }
 
-  try {
-    const result = await runCheck({ source: 'cron' });
-    // Keep the response small: no full show lists.
-    return sendJson(res, 200, {
-      ok: true,
-      at: result.at,
-      found: result.found,
-      newReleases: result.newReleases,
-      releasedCount: result.releasedCount,
-      upcomingCount: result.upcomingCount,
-      failed: result.failed,
-      telegram: result.telegram
-    });
-  } catch (err) {
-    console.error('[cron] check failed:', err.message);
-    return sendJson(res, 500, { ok: false, error: err.message });
-  }
+  // One Hobby-compatible daily cron checks BOTH sources, independently.
+  const [ott, episodes] = await Promise.allSettled([
+    runCheck({ source:'cron' }),
+    checkEpisodes()
+  ]);
+  const response = {
+    ok:ott.status === 'fulfilled' && episodes.status === 'fulfilled',
+    ott:ott.status === 'fulfilled' ? {
+      found:ott.value.found,
+      newReleases:ott.value.newReleases,
+      failed:ott.value.failed,
+      telegram:ott.value.telegram
+    } : {error:String(ott.reason?.message || ott.reason)},
+    episodes:episodes.status === 'fulfilled' ? {
+      scanned:episodes.value.scanned,
+      newEpisodes:episodes.value.newEpisodes,
+      alertedEpisodes:episodes.value.alertedEpisodes,
+      sent:episodes.value.sent,
+      initialized:episodes.value.initialized
+    } : {error:String(episodes.reason?.message || episodes.reason)}
+  };
+  return sendJson(res,response.ok ? 200 : 500,response);
 }
 
 // Quick setup check: GET /api/telegram/test — sends a test message.

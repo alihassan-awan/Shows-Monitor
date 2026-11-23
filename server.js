@@ -12,7 +12,8 @@ import {
   handleShows,
   handleCheck,
   handleCronCheck,
-  handleTelegramTest
+  handleTelegramTest,
+  handleEpisodes
 } from './src/handlers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -22,6 +23,7 @@ const PORT = process.env.PORT || 3000;
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/api/meta', (req, res) => handleMeta(req, res).catch((e) => res.status(500).json({ error: e.message })));
+app.get('/api/episodes', (req,res) => handleEpisodes(req,res));
 app.get('/api/shows', (req, res) => handleShows(req, res).catch((e) => res.status(500).json({ error: e.message })));
 app.get('/api/check', (req, res) => handleCheck(req, res));
 app.get('/api/cron/check', (req, res) => handleCronCheck(req, res));

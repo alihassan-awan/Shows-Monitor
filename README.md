@@ -203,11 +203,12 @@ diagnose.mjs         Connection diagnostic (npm run diagnose)
 - Old records are backfilled as "already notified" on first run, so enabling
   Telegram later won't spam you with the existing catalogue.
 
-## SerialTvmaza episode alerts (v6 extension)
+## Current deployment (23 November 2026): daily combined monitoring
 
-- `/api/cron/episodes` checks the site's **Recent Posts** and sends one Telegram alert per newly detected episode post.
-- The first successful run seeds the episode URL baseline **without sending old alerts**.
-- Runs at **09:00 and 21:00 PKT** (04:00 and 16:00 UTC) when the Vercel plan supports twice-daily cron.
-- Requires existing `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `CRON_SECRET`, and persistent Upstash/Vercel KV environment variables.
-- **Important:** Vercel Hobby cron may be restricted to once per day. If deployment rejects the 12-hour schedule, remove the episodes entry from `vercel.json` and invoke the secured endpoint with an external scheduler twice daily, or upgrade to a plan that supports it. External scheduler must send `Authorization: Bearer <CRON_SECRET>`.
-- Notifications detect **new posts**, not verified playback availability. Only posts visible in the homepage Recent Posts are checked, so a busy source can cause misses between checks.
+- **One Vercel Hobby cron** at `0 4 * * *` (09:00 Pakistan time): `/api/cron/check` checks both official OTT pages and SerialTvmaza episode posts, independently. The earlier second cron was removed.
+- The homepage **Check OTT + Episodes** button checks both sources and displays the episode result.
+- **SerialTvmaza — Recent Episodes** shows the latest monitored posts and last scan status. Read-only API: `/api/episodes`.
+- Existing `/api/cron/episodes` remains available for authenticated troubleshooting but is **not** separately scheduled.
+- First episode scan creates a silent baseline. Existing `episodes:seen:v1` Redis key is preserved when upgrading. New episode posts are sent in compact Telegram batches; they are not confirmed playback availability.
+- The website's Recent Posts page may omit episodes published between runs; daily checks reduce but do not eliminate this limitation.
+- Source fetch, Telegram and Redis require live verification in Vercel Logs. Missing/failed Redis reads must never silently reset episode deduplication.
